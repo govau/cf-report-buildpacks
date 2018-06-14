@@ -110,7 +110,7 @@ type droplet struct {
 	} `json:"buildpacks"`
 }
 
-type reportUsers struct{}
+type reportBuildpacks struct{}
 
 func newSimpleClient(cliConnection plugin.CliConnection, quiet bool) (*simpleClient, error) {
 	at, err := cliConnection.AccessToken()
@@ -130,11 +130,11 @@ func newSimpleClient(cliConnection plugin.CliConnection, quiet bool) (*simpleCli
 	}, nil
 }
 
-func (c *reportUsers) Run(cliConnection plugin.CliConnection, args []string) {
+func (c *reportBuildpacks) Run(cliConnection plugin.CliConnection, args []string) {
 	outputJSON := false
 	quiet := false
 
-	fs := flag.NewFlagSet("report-users", flag.ExitOnError)
+	fs := flag.NewFlagSet("report-buildpacks", flag.ExitOnError)
 	fs.BoolVar(&outputJSON, "output-json", false, "if set sends JSON to stdout instead of a rendered table")
 	fs.BoolVar(&quiet, "quiet", false, "if set suppressing printing of progress messages to stderr")
 	err := fs.Parse(args[1:])
@@ -148,12 +148,6 @@ func (c *reportUsers) Run(cliConnection plugin.CliConnection, args []string) {
 	}
 
 	switch args[0] {
-	case "report-users":
-		err := c.reportUsers(client, os.Stdout, outputJSON)
-		if err != nil {
-			log.Fatal(err)
-		}
-
 	case "report-buildpacks":
 		err := c.reportBuildpacks(client, os.Stdout, outputJSON)
 		if err != nil {
@@ -170,7 +164,7 @@ type buildpackUsageInfo struct {
 	Messages     []string `json:"messages,omitempty"`
 }
 
-func (c *reportUsers) reportBuildpacks(client *simpleClient, out io.Writer, outputJSON bool) error {
+func (c *reportBuildpacks) reportBuildpacks(client *simpleClient, out io.Writer, outputJSON bool) error {
 	buildpacks := make(map[string]*resource)
 	err := client.List("/v2/buildpacks", func(bp *resource) error {
 		if bp.Entity.Enabled {
@@ -260,86 +254,12 @@ func (c *reportUsers) reportBuildpacks(client *simpleClient, out io.Writer, outp
 	return nil
 }
 
-type userInfoLineItem struct {
-	Organization string `json:"organization"`
-	Space        string `json:"space,omitempty"`
-	Username     string `json:"username"`
-	Role         string `json:"role"`
-}
-
-func (c *reportUsers) reportUsers(client *simpleClient, out io.Writer, outputJSON bool) error {
-	var allInfo []*userInfoLineItem
-	err := client.List("/v2/organizations", func(org *resource) error {
-		for _, orgRole := range []struct {
-			Role string
-			URL  string
-		}{
-			//{"OrgUser", org.Entity.UsersURL}, // These don't appear to be terribly meaningful
-			{"OrgManager", org.Entity.ManagersURL},
-			{"OrgBillingManager", org.Entity.BillingManagersURL},
-			{"OrgAuditor", org.Entity.AuditorsURL},
-		} {
-			err := client.List(orgRole.URL, func(user *resource) error {
-				allInfo = append(allInfo, &userInfoLineItem{
-					Organization: org.Entity.Name,
-					Username:     user.Entity.Username,
-					Role:         orgRole.Role,
-				})
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-		}
-
-		return client.List(org.Entity.SpacesURL, func(space *resource) error {
-			for _, spaceRole := range []struct {
-				Role string
-				URL  string
-			}{
-				{"SpaceDeveloper", space.Entity.DevelopersURL},
-				{"SpaceManager", space.Entity.ManagersURL},
-				{"SpaceAuditor", space.Entity.AuditorsURL},
-			} {
-				err := client.List(spaceRole.URL, func(user *resource) error {
-					allInfo = append(allInfo, &userInfoLineItem{
-						Organization: org.Entity.Name,
-						Space:        space.Entity.Name,
-						Username:     user.Entity.Username,
-						Role:         spaceRole.Role,
-					})
-					return nil
-				})
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-	})
-	if err != nil {
-		return err
-	}
-
-	if outputJSON {
-		return json.NewEncoder(out).Encode(allInfo)
-	}
-
-	table := tablewriter.NewWriter(out)
-	table.SetHeader([]string{"Organization", "Space", "Username", "Role"})
-	for _, info := range allInfo {
-		table.Append([]string{info.Organization, info.Space, info.Username, info.Role})
-	}
-	table.Render()
-	return nil
-}
-
-func (c *reportUsers) GetMetadata() plugin.PluginMetadata {
+func (c *reportBuildpacks) GetMetadata() plugin.PluginMetadata {
 	return plugin.PluginMetadata{
-		Name: "Report Users",
+		Name: "report-buildpacks",
 		Version: plugin.VersionType{
 			Major: 0,
-			Minor: 5,
+			Minor: 1,
 			Build: 0,
 		},
 		MinCliVersion: plugin.VersionType{
@@ -348,17 +268,6 @@ func (c *reportUsers) GetMetadata() plugin.PluginMetadata {
 			Build: 0,
 		},
 		Commands: []plugin.Command{
-			{
-				Name:     "report-users",
-				HelpText: "Report all users in installation",
-				UsageDetails: plugin.Usage{
-					Usage: "cf report-users",
-					Options: map[string]string{
-						"output-json": "if set sends JSON to stdout instead of a rendered table",
-						"quiet":       "if set suppresses printing of progress messages to stderr",
-					},
-				},
-			},
 			{
 				Name:     "report-buildpacks",
 				HelpText: "Report all buildpacks used in installation",
@@ -375,5 +284,5 @@ func (c *reportUsers) GetMetadata() plugin.PluginMetadata {
 }
 
 func main() {
-	plugin.Start(&reportUsers{})
+	plugin.Start(&reportBuildpacks{})
 }
