@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -26,6 +27,9 @@ type simpleClient struct {
 
 	// Quiet - if set don't print progress to stderr
 	Quiet bool
+
+	// Client - http.Client to use
+	Client *http.Client
 }
 
 // Get makes a GET request, where r is the relative path, and rv is json.Unmarshalled to
@@ -38,7 +42,7 @@ func (sc *simpleClient) Get(r string, rv interface{}) error {
 		return err
 	}
 	req.Header.Set("Authorization", sc.Authorization)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := sc.Client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -123,10 +127,31 @@ func newSimpleClient(cliConnection plugin.CliConnection, quiet bool) (*simpleCli
 		return nil, err
 	}
 
+	skipSSL, err := cliConnection.IsSSLDisabled()
+	if err != nil {
+		return nil, err
+	}
+
+	httpClient := http.DefaultClient
+	if skipSSL {
+		if !quiet {
+			log.Println("warning: skipping TLS validation...")
+		}
+
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		}
+	}
+
 	return &simpleClient{
 		API:           api,
 		Authorization: at,
 		Quiet:         quiet,
+		Client:        httpClient,
 	}, nil
 }
 
